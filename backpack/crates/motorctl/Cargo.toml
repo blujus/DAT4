@@ -20,3 +20,8 @@ btleplug = "0.11"
 clap = { version = "4.5", features = ["derive"] }
 futures = "0.3"
 uuid = "1"
+tonic = "0.12"
+prost = "0.13"
+
+[build-dependencies]
+tonic-build = "0.12"

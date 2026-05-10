@@ -24,10 +24,26 @@ use crate::proto::Firmware;
 use crate::pybricks::{self, PybricksLink};
 
 pub struct Brick {
-    peripheral: Peripheral,
+    peripheral: Option<Peripheral>,
     lwp3_char: Option<btleplug::api::Characteristic>,
     pybricks: Option<PybricksLink>,
     firmware: Firmware,
+}
+
+impl Brick {
+    /// Build a `Brick` with no underlying BLE connection. Used by tests
+    /// that exercise the IPC / gRPC plumbing without needing a real hub.
+    /// Any BLE-touching call (`set_speed`, `coast`, `brake`,
+    /// `run_for_degrees`, skill ops) will return an error; `firmware()`
+    /// returns the value passed in.
+    pub fn stub_for_tests(firmware: Firmware) -> Self {
+        Self {
+            peripheral: None,
+            lwp3_char: None,
+            pybricks: None,
+            firmware,
+        }
+    }
 }
 
 impl Brick {
@@ -83,7 +99,7 @@ impl Brick {
 
         info!(?firmware, "connected to hub");
         Ok(Self {
-            peripheral,
+            peripheral: Some(peripheral),
             lwp3_char,
             pybricks,
             firmware,
@@ -95,11 +111,15 @@ impl Brick {
     }
 
     async fn write_lwp3(&self, msg: &[u8]) -> Result<()> {
+        let peripheral = self
+            .peripheral
+            .as_ref()
+            .ok_or_else(|| anyhow!("BLE peripheral not connected (test stub?)"))?;
         let char = self
             .lwp3_char
             .as_ref()
             .ok_or_else(|| anyhow!("LWP3 not available on this firmware"))?;
-        self.peripheral
+        peripheral
             .write(char, msg, WriteType::WithoutResponse)
             .await
             .context("writing LWP3 frame")?;
