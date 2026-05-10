@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["crates/motorctl"]
+members = [
+    "crates/motorctl",
+    "crates/reflex",
+]
 
 [workspace.package]
 edition = "2021"

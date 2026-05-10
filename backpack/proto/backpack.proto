@@ -1,0 +1,133 @@
+// Backpack v1 RPC surface.
+//
+// The amygdala (a Pi Zero 2 W on the robot chassis) runs `motorctl`
+// behind this gRPC service. The cortex — anywhere on the network —
+// connects in, drives motors, uploads muscle memory, and subscribes
+// to sensor + skill events.
+//
+// Schema deliberately mirrors the existing Unix-socket protocol
+// (crates/motorctl/src/proto.rs) so transport is just a connection
+// string.
+//
+// Build with `tonic-build` (see crates/motorctl/build.rs once the
+// gRPC implementation lands).
+
+syntax = "proto3";
+
+package backpack.v1;
+
+// =============================================================== BrickLink
+
+service BrickLink {
+  // ----- direct motor control (works on any firmware) ---------------
+  rpc SetSpeed(SetSpeedRequest)             returns (Ack);
+  rpc RunForDegrees(RunForDegreesRequest)   returns (Ack);
+  rpc Stop(PortRequest)                     returns (Ack);
+  rpc Brake(PortRequest)                    returns (Ack);
+  rpc GetStatus(StatusRequest)              returns (StatusResponse);
+
+  // ----- muscle memory (Pybricks firmware only) ---------------------
+  rpc LoadSkill(LoadSkillRequest)           returns (Ack);
+  rpc UnloadSkill(UnloadSkillRequest)       returns (Ack);
+  rpc SkillMessage(SkillMessageRequest)     returns (Ack);
+  rpc StreamSkillEvents(StreamSkillEventsRequest) returns (stream SkillEvent);
+
+  // ----- telemetry ---------------------------------------------------
+  rpc StreamSensorEvents(StreamSensorEventsRequest) returns (stream SensorEvent);
+}
+
+message Ack {}
+
+message SetSpeedRequest {
+  uint32 port  = 1;
+  float  speed = 2;     // [-1.0, 1.0]
+}
+
+message RunForDegreesRequest {
+  uint32 port    = 1;
+  int32  degrees = 2;
+  float  speed   = 3;
+}
+
+message PortRequest {
+  uint32 port = 1;
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+  Firmware           firmware      = 1;
+  optional string    current_skill = 2;
+  repeated PortInfo  ports         = 3;
+}
+
+message PortInfo {
+  uint32          port       = 1;
+  optional string device     = 2;
+  float           last_speed = 3;
+}
+
+enum Firmware {
+  FIRMWARE_UNSPECIFIED = 0;
+  FIRMWARE_LEGO        = 1;
+  FIRMWARE_PYBRICKS    = 2;
+}
+
+message LoadSkillRequest {
+  string name = 1;
+  string code = 2;
+}
+message UnloadSkillRequest {}
+
+message SkillMessageRequest {
+  string payload = 1;
+}
+
+message StreamSkillEventsRequest {}
+message SkillEvent {
+  string payload = 1;
+}
+
+message StreamSensorEventsRequest {
+  // Empty list = all ports.
+  repeated uint32 ports = 1;
+}
+
+message SensorEvent {
+  uint32 port         = 1;
+  // Body shape depends on the device on that port; we tunnel JSON
+  // until the per-device schema settles.
+  string json_payload = 2;
+}
+
+// =============================================================== Reflex
+//
+// The reflex daemon runs on the amygdala alongside motorctl. It owns
+// motor stops on safety triggers (cortex watchdog, tilt, bumper).
+//
+// The cortex MUST keep a Heartbeat stream open. If a ping doesn't
+// arrive within `deadline_ms`, the reflex brakes all motors and
+// reports `last_trigger="watchdog_timeout"` on the next pong.
+
+service Reflex {
+  rpc Heartbeat(stream HeartbeatPing) returns (stream HeartbeatPong);
+  rpc GetStatus(ReflexStatusRequest)  returns (ReflexStatus);
+}
+
+message HeartbeatPing {
+  uint64 sequence    = 1;
+  // Honoured on the first ping only — sets the watchdog deadline.
+  uint32 deadline_ms = 2;
+}
+message HeartbeatPong {
+  uint64       sequence = 1;
+  ReflexStatus status   = 2;
+}
+
+message ReflexStatusRequest {}
+message ReflexStatus {
+  bool            armed        = 1;
+  optional string last_trigger = 2;     // "watchdog_timeout", "tilt", "bumper"
+  uint32          deadline_ms  = 3;
+  uint64          last_seen_ms = 4;     // ms since last heartbeat
+}
