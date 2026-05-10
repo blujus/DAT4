@@ -51,6 +51,14 @@ class MotorCtl:
     def set_speed(self, port: int, speed: float) -> None:
         self._call({"cmd": "set_speed", "port": port, "speed": speed})
 
+    def run_for_degrees(self, port: int, degrees: int, speed: float) -> None:
+        self._call({
+            "cmd": "run_for_degrees",
+            "port": port,
+            "degrees": degrees,
+            "speed": speed,
+        })
+
     def stop(self, port: int) -> None:
         self._call({"cmd": "stop", "port": port})
 

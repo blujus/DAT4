@@ -2,44 +2,52 @@
 
 ## Bill of materials
 
-| Part                                | Notes                                  |
-|-------------------------------------|----------------------------------------|
-| Raspberry Pi 5 (4 GB or 8 GB)       | The brain.                             |
-| Raspberry Pi Build HAT              | LPF2 connector + STM32 co-processor.   |
-| 8 V / 48 W barrel-jack PSU          | Powers the BuildHAT motor rail.        |
-| USB-C 5 V / 5 A PSU for the Pi      | Don't try to power the Pi off the HAT. |
-| MicroSD or NVMe                     | NVMe HAT is great if you have room.    |
-| LEGO Technic Large / Medium motors  | LPF2 motors only (45602 / 88008 etc).  |
-| LEGO sensors as needed              | Colour, distance, force.               |
+| Part                                    | Notes                              |
+|-----------------------------------------|------------------------------------|
+| Raspberry Pi 5 (4 GB or 8 GB)           | Built-in BLE; the cortex.          |
+| LEGO 51515 hub (Robot Inventor / SPIKE) | 6 LPF2 ports, internal battery.    |
+| USB-C 5 V / 5 A PSU for the Pi          | Independent of the hub's battery.  |
+| MicroSD or NVMe                         | NVMe HAT works if it fits.         |
+| LEGO Technic Large / Medium motors      | LPF2 motors (45602 / 88008 etc).   |
+| LEGO sensors as needed                  | Colour, distance, force.           |
+
+The hub powers itself and the motors from its internal battery; the Pi
+is powered separately. They are coupled only by BLE.
 
 ## Mounting ("the backpack")
 
-The Pi + BuildHAT stack sits on the robot like a backpack. Two design
-goals:
+The Pi rides on top of the robot like a backpack. Two design rules:
 
-1. **LPF2 cables stay short.** The HAT's four ports should face outward
-   so cables can drop straight to the motors. Long cable runs around the
-   chassis make wiring fragile.
-2. **Serviceable.** The Pi should come off without disassembling the
-   robot. A LEGO Technic frame around the HAT with two 4M pins works
-   well; the Pi slides in and out.
+1. **Keep the hub central.** The 51515 hub is heavy and houses the
+   battery; treat it as the centre of mass and build outward.
+2. **Pi on a quick-release frame.** A LEGO Technic frame around the Pi
+   with two 4M pins lets you pop the Pi off without disassembling the
+   robot — useful when you're flashing the SD card or reseating the
+   camera ribbon.
 
-A reference frame is in `docs/` (TBD: add the .io / .ldr file).
+## Pairing the hub
 
-## UART notes (Pi 5 specific)
+The hub advertises over BLE as soon as you press the power button. There
+is no PIN. `motorctl` discovers it by name, defaulting to anything
+containing "lego", "spike", "technic" or "mindstorms" — pass
+`--name SPIKE` (or similar) on the command line if you have several
+hubs in range.
 
-- The BuildHAT lives on `/dev/serial0`, which on the Pi 5 is the primary
-  PL011 UART exposed on the GPIO header.
-- Disable the serial console (`raspi-config` -> Interface Options ->
-  Serial Port -> login shell `No`, hardware `Yes`). The install script
-  does this for you.
-- On first power-on, the BuildHAT's STM32 firmware loads from the Pi.
-  Expect a ~3 s pause before commands are accepted.
+If you've previously paired the hub with a phone or laptop, that
+device will fight the Pi for the connection. Power the hub off and
+back on with only the Pi listening, and the Pi will win.
 
 ## Power
 
-- Don't backfeed the Pi from the HAT and don't backfeed the HAT from the
-  Pi. Use both supplies.
-- The HAT measures input voltage (`vin` command); `motorctl` will
-  eventually surface this on the IPC `status` response so the
-  orchestrator can throttle when the battery sags.
+- Don't try to power the Pi off the hub or vice-versa. They live on
+  separate power planes.
+- The hub reports battery voltage in LWP3 `Hub Properties` notifications;
+  `motorctl` will eventually surface this on the IPC `status` response
+  so the cortex can throttle missions when the battery sags.
+
+## Firmware
+
+The scaffold targets stock LEGO firmware on the 51515 hub. It does *not*
+require Pybricks. If you have flashed Pybricks onto the hub, the LWP3
+GATT service is replaced by the Pybricks service — a future addition
+to `motorctl` could speak both, but today, stay on the LEGO firmware.
