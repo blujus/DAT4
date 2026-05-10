@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "backpack-twin"
+version = "0.1.0"
+description = "MuJoCo digital twin and RL training for the backpack robot"
+requires-python = ">=3.11"
+dependencies = [
+    "mujoco>=3.2",
+    "gymnasium>=0.29",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+train = [
+    "stable-baselines3>=2.3",
+    "torch>=2.2",
+    "tensorboard>=2.16",
+]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["twin*"]

@@ -8,11 +8,12 @@ use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 use crate::brick::Brick;
-use crate::proto::{PortInfo, Request, Response};
+use crate::proto::{Firmware, PortInfo, Request, Response};
 
 pub struct Daemon {
     brick: Mutex<Brick>,
     last_speeds: Mutex<[f32; 6]>,
+    current_skill: Mutex<Option<String>>,
 }
 
 impl Daemon {
@@ -20,6 +21,7 @@ impl Daemon {
         Self {
             brick: Mutex::new(brick),
             last_speeds: Mutex::new([0.0; 6]),
+            current_skill: Mutex::new(None),
         }
     }
 
@@ -46,13 +48,21 @@ impl Daemon {
                 Err(e) => err(e),
             },
             Request::RunForDegrees { port, degrees, speed } => {
-                match self.brick.lock().await.run_for_degrees(port, degrees, speed).await {
+                match self
+                    .brick
+                    .lock()
+                    .await
+                    .run_for_degrees(port, degrees, speed)
+                    .await
+                {
                     Ok(()) => Response::Ack,
                     Err(e) => err(e),
                 }
             }
             Request::Status => {
                 let speeds = *self.last_speeds.lock().await;
+                let firmware = self.brick.lock().await.firmware();
+                let current_skill = self.current_skill.lock().await.clone();
                 Response::Status {
                     ports: (0..6u8)
                         .map(|p| PortInfo {
@@ -61,7 +71,36 @@ impl Daemon {
                             last_speed: speeds[p as usize],
                         })
                         .collect(),
+                    firmware,
+                    current_skill,
                 }
+            }
+            Request::LoadSkill { name, code } => {
+                match self.brick.lock().await.load_skill(&name, &code).await {
+                    Ok(()) => {
+                        *self.current_skill.lock().await = Some(name);
+                        Response::Ack
+                    }
+                    Err(e) => err(e),
+                }
+            }
+            Request::UnloadSkill => match self.brick.lock().await.unload_skill().await {
+                Ok(()) => {
+                    *self.current_skill.lock().await = None;
+                    Response::Ack
+                }
+                Err(e) => err(e),
+            },
+            Request::SkillMessage { payload } => {
+                match self.brick.lock().await.skill_message(&payload).await {
+                    Ok(()) => Response::Ack,
+                    Err(e) => err(e),
+                }
+            }
+            Request::SubscribeSkillEvents => {
+                // TODO: wire skill events out to the subscribed connection.
+                // For now we acknowledge so the python side can no-op.
+                Response::Ack
             }
         }
     }
@@ -124,3 +163,8 @@ async fn handle_client(daemon: Arc<Daemon>, stream: UnixStream) -> Result<()> {
         tx.flush().await?;
     }
 }
+
+// Suppress unused-import warning when Firmware is referenced only via the Status response.
+const _: fn() = || {
+    let _: Firmware;
+};

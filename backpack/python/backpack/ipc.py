@@ -10,6 +10,7 @@ import json
 import socket
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Iterator
 
 DEFAULT_SOCKET = "/run/motorctl.sock"
@@ -48,6 +49,8 @@ class MotorCtl:
     def __exit__(self, *_: Any) -> None:
         self.close()
 
+    # --- direct motor control ---------------------------------------------
+
     def set_speed(self, port: int, speed: float) -> None:
         self._call({"cmd": "set_speed", "port": port, "speed": speed})
 
@@ -67,6 +70,26 @@ class MotorCtl:
 
     def status(self) -> dict[str, Any]:
         return self._call({"cmd": "status"})
+
+    # --- muscle memory (Pybricks only) ------------------------------------
+
+    def load_skill(self, name: str, code: str | Path) -> None:
+        """Push a skill (Pybricks Python program) to the hub and start it.
+
+        `code` may be a string of Python source or a Path to a .py file.
+        Requires Pybricks firmware on the hub.
+        """
+        if isinstance(code, Path):
+            code = code.read_text()
+        self._call({"cmd": "load_skill", "name": name, "code": code})
+
+    def unload_skill(self) -> None:
+        self._call({"cmd": "unload_skill"})
+
+    def skill_message(self, payload: str) -> None:
+        self._call({"cmd": "skill_message", "payload": payload})
+
+    # --- transport --------------------------------------------------------
 
     def _call(self, req: dict[str, Any]) -> dict[str, Any]:
         if self._sock is None:

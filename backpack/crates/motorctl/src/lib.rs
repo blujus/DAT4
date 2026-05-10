@@ -1,14 +1,15 @@
 //! Brick-link daemon: connects the Pi cortex to a LEGO SPIKE Prime or
-//! Mindstorms Robot Inventor (51515) hub over Bluetooth LE using the
-//! LEGO Wireless Protocol (LWP3), and exposes that link as a Unix-socket
-//! IPC server.
+//! Mindstorms Robot Inventor (51515) hub over Bluetooth LE, and exposes
+//! that link as a Unix-socket IPC server.
 //!
-//! The hub owns the inner control loop (PID, stall detection, encoders)
-//! and the power rail. This daemon's job is to deliver high-level
-//! commands without jitter so the Python cortex above can take its time
-//! doing vision and planning.
+//! The hub owns the inner control loop (PID, encoders, power). On stock
+//! LEGO firmware we drive it with LWP3 Port Output commands. On Pybricks
+//! firmware we additionally support uploading "muscle memory" skills
+//! (small Python programs) that run on the hub itself, and bidirectional
+//! Bluetooth messaging between those skills and the Pi cortex.
 
 pub mod brick;
 pub mod ipc;
 pub mod lwp3;
 pub mod proto;
+pub mod pybricks;

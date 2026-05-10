@@ -1,126 +1,126 @@
 # Architecture
 
 ```
-     user: "follow me" / "move in a circle" / "pick that thing up"
+     user goal: "follow me" / "learn to walk like a crab"
               |
               v
   +-----------+--------------------------------------+
   |  Cortex (Python, Claude Opus 4.7)                |
   |  - tool runner: drive, turn, arc, stop,          |
-  |                 look, get_status                  |
+  |                 look, get_status,                |
+  |                 load_skill, skill_message        |
   |  - adaptive thinking, effort=high                |
-  +-----+----------------------------+---------------+
-        | motion tools               | perception tool
-        v                            v
-  +-----+--------------+      +------+-------------------+
-  |  Skills (Python)   |      |  Perception (Python)     |
-  |  diff-drive maths  |      |  picamera2 + Haiku 4.5   |
-  +-----+--------------+      +--------------------------+
-        | JSON over Unix socket
+  +-----+---------+-----------+----------------------+
+        |         |           |
+        |         |           | upload skill / send msg
+        |         |           v
+        |         |    +------+--------------------+
+        |         |    |  motorctl (Rust)          |
+        |         |    |  - LWP3 motor commands    |
+        |         |    |  - Pybricks code-load     |  (BLE)  +------------------+
+        |         |    |  - Pybricks BLE messaging |  ----▶  |  LEGO 51515 hub  |
+        |         |    +------+--------------------+         |  (Pybricks fw)   |
+        |         |           ^                              |  + muscle-memory |
+        |         |           |                              |    skill on-hub  |
+        |         v           |                              +--------+---------+
+        |    +----+---------------------+                              |
+        |    |  Perception (Python)     |                              | LPF2
+        |    |  Pi camera + Haiku 4.5   |                              v
+        |    +--------------------------+                          motors / sensors
         v
   +-----+--------------+
-  |  motorctl (Rust)   |
-  |  BLE LWP3 link     |
-  +-----+--------------+
-        | Bluetooth LE GATT char
-        v
-  +-----+--------------+
-  |  LEGO 51515 hub    |
-  |  PID, encoders,    |
-  |  6 LPF2 ports      |
-  +-----+--------------+
-        | LPF2
-        v
-     motors & sensors
+  |  Skills (Python)   |   diff-drive primitives layered on motorctl,
+  |  diff-drive maths  |   used by tools above when no on-hub skill
+  +--------------------+   needs to take over.
+
+
+  ----- offline / training loop -----------------------------------------
+
+            twin/  (MuJoCo + Gymnasium)
+              |
+              +--- sim_daemon (motorctl-compatible IPC)  -- cortex evals
+              |
+              \--- BackpackEnv (gym.Env)  -- PPO --▶ policy
+                                                       |
+                                              twin/distill.py
+                                                       |
+                                                       v
+                                          skills_lib/<name>.py
+                                                       |
+                                                       v
+                                            cortex.load_skill(...)
 ```
 
-## The cortex's job
+## Three time scales
 
-The agent doesn't see ports, encoder degrees, or LWP3 frames. It sees:
+The split is fundamentally about which loop runs at which rate:
 
-- **drive(distance_cm, speed)** — straight-line motion
-- **turn(degrees, speed)** — rotate in place; positive = clockwise
-- **arc(radius_cm, angle_deg, speed)** — curved path
-- **stop()** — halt all motion
-- **look(prompt)** — take a frame from the Pi camera and get a textual
-  description (Claude Haiku 4.5 captions the JPEG)
-- **get_status()** — last commanded speed on each port
+| Loop                     | Rate       | Where it lives          |
+|--------------------------|------------|-------------------------|
+| Cognitive cortex         | 0.1–1 Hz   | Pi (Python, Claude)     |
+| Skills (diff-drive math) | 10–100 Hz  | Pi (Python)             |
+| Muscle memory            | 50–500 Hz  | LEGO hub (Pybricks)     |
+| Inner motor PID          | ~1 kHz     | LEGO hub firmware       |
 
-This is a small, deliberately stable surface. It is what "the brick" looks
-like *to a planning agent*: the body is concrete, but the brick handles
-everything below the level of *"go forward 30 cm"*.
-
-A goal like *"follow me"* becomes:
-
-1. `look()` — where is the user?
-2. small `arc()` to keep them centred
-3. `drive()` a short distance
-4. back to step 1, until the goal stops being interesting
-
-Claude decides the loop, the threshold, when to stop, when to ask. We
-don't hand-code that.
-
-## Why three processes
-
-A single Python process talking BLE directly is the obvious thing to do,
-and for a slow demo it works. But:
-
-- BLE writes from `bleak` block on the asyncio loop. A GC pause or a
-  slow vision frame translates into a stutter at the motors.
-- The hub doesn't queue beyond its small input buffer. Missing the
-  rhythm of `StartSpeed` updates makes the robot drift.
-- Hot-reloading the cortex (the whole point of using Python) drops the
-  BLE link with it, which forces a reconnect dance.
-
-Moving the BLE link into a tiny Rust daemon means the cortex can be
-restarted, hung, profiled or replaced without dropping the hub
-connection, and the link itself runs without GC.
-
-Moving vision into a separate per-call process boundary (a `look()`
-tool that internally talks to Claude vision) means the cortex doesn't
-block its own reasoning loop on camera I/O.
+Moving a loop *down* the stack (cortex → skills → muscle memory) trades
+flexibility for tightness. Things that benefit from being closer to the
+motors — balance, gait, fine speed control — should ride on muscle
+memory; things that benefit from being closer to the world model —
+planning, vision, mission goals — belong in the cortex.
 
 ## Wire protocol (cortex ↔ motorctl)
 
 Newline-delimited JSON over a Unix domain socket. Requests are tagged
-with `cmd`; responses with `ok`.
+with `cmd`; responses with `ok`. Schema lives in
+`crates/motorctl/src/proto.rs`.
 
+Direct motor control:
 ```
 -> {"cmd":"run_for_degrees","port":0,"degrees":360,"speed":0.5}
 <- {"ok":"ack"}
-
--> {"cmd":"status"}
-<- {"ok":"status","ports":[{"port":0,"device":null,"last_speed":0.5}, ...]}
 ```
 
-Canonical schema lives in `crates/motorctl/src/proto.rs`.
+Muscle-memory upload:
+```
+-> {"cmd":"load_skill","name":"diff_drive_pid","code":"..."}
+<- {"ok":"ack"}
+-> {"cmd":"skill_message","payload":"target 0.4 0.0"}
+<- {"ok":"ack"}
+```
+
+Status reports firmware family and the running skill so the cortex
+knows what it's working with:
+```
+-> {"cmd":"status"}
+<- {"ok":"status","ports":[...],"firmware":"pybricks","current_skill":"diff_drive_pid"}
+```
 
 ## Wire protocol (motorctl ↔ hub)
 
-LEGO Wireless Protocol 3 (LWP3) over BLE. The hub exposes a single
-GATT service (`00001623-...`) with one read/write/notify characteristic
-(`00001624-...`).
-
-The daemon currently emits Port Output Commands:
-
-- `StartPower` (0x01) — used for coast (power=0) and brake (power=127)
-- `StartSpeed` (0x07) — used for `set_speed`
-- `StartSpeedForDegrees` (0x0B) — used for `run_for_degrees`
-
-The encoder for these lives in `crates/motorctl/src/lwp3.rs`, with
-unit tests asserting the byte-for-byte wire format.
+- **LEGO firmware:** LEGO Wireless Protocol 3 (LWP3) over BLE. Single
+  service `00001623-...`, single read/write/notify characteristic
+  `00001624-...`. Command-only — you cannot push code to the hub.
+- **Pybricks firmware:** distinct service `c5f50001-...` with control
+  + capabilities characteristics. Supports BLE program upload
+  ("Code v2") and bidirectional Bluetooth messaging. The motorctl
+  daemon detects which firmware the hub is running at connect time
+  and routes commands accordingly.
 
 ## Roadmap
 
-1. Decode `Hub Attached I/O` notifications so `status` reports which
-   motor / sensor is on each port (and the cortex knows what's
-   physically connected).
-2. Surface motor-completion events on the IPC channel so `Skills` can
-   wait on "move done" rather than a sleep estimate.
-3. Sensor streaming — expose colour / distance / force as live values
-   the cortex can subscribe to.
-4. Memory across sessions: persist what the robot learned ("the kitchen
-   is to the right", "the red brick is 30 cm tall") via the Anthropic
-   memory tool.
-5. Multi-modal `look()` — return the image to the cortex directly so it
-   can reason on pixels, not on a caption.
+1. Finish the Pybricks Code v2 BLE wire protocol in
+   `crates/motorctl/src/pybricks.rs` (currently stubbed). Either port
+   the relevant bits of `pybricksdev` (Python) or wrap the
+   `pybricksdev` CLI behind `tokio::process::Command` for a quicker
+   first cut.
+2. Surface motor-completion + sensor events on the IPC channel so
+   `Skills` can wait on "move done" and the cortex can subscribe to
+   colour / distance / force readings without polling.
+3. Replace `twin/assets/robot.xml` with a model that matches your
+   actual LEGO build, including motor torque/speed curves, friction,
+   and IMU noise. Sim-to-real fidelity will live or die by this.
+4. Implement real distillation in `twin/twin/distill.py` (lookup
+   table or fitted PID, then tinyMLP for the harder skills).
+5. Cortex memory across sessions via the Anthropic memory tool, so
+   what the robot learned ("the kitchen is right", "the red brick is
+   30 cm tall", "diff_drive_pid v3 wobbles on hardwood") persists.
