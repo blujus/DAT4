@@ -1,7 +1,9 @@
-"""Tiny example cortex: spin port A one revolution forward, then back.
+"""Hardware smoke test — no LLM, just exercises the IPC and motors.
 
-Run with `python -m backpack.orchestrator` once `motorctl` is up and
-paired with the hub.
+Run this first to confirm motorctl is up, the hub is paired, and motors
+spin in the right direction. Once that works, switch to the cortex:
+
+    python -m backpack 'drive forward 30 cm and stop'
 """
 
 from __future__ import annotations

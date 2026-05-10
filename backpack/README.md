@@ -2,60 +2,99 @@
 
 A Raspberry Pi-powered cortex for LEGO Mindstorms / Technic robots.
 
-The LEGO SPIKE Prime / Mindstorms Robot Inventor (51515) hub keeps doing
-what it's good at — powering the robot, running the inner motor-control
-loop, talking to LPF2 sensors on its six ports. The Pi sits on top as a
-**cortex**: vision, planning, language, mission scripting, anything where
-iteration speed and library ecosystem matter more than microseconds.
+The LEGO SPIKE Prime / Robot Inventor (51515) hub keeps doing what it's
+good at — powering the robot, running the inner motor-control loop,
+talking to LPF2 sensors on its six ports. The Pi sits on top as an
+**agentic cortex**: instructions like *"follow me"*, *"move in a circle"*,
+or *"pick that thing up"* go in as plain English, and Claude (Opus 4.7,
+adaptive thinking) plans the action, looks through the camera when it
+needs to, and drives the brick to make it happen.
+
+The brick is, in effect, a tool the agent has access to.
 
 ```
-  Pi cortex  ──BLE LWP3──▶  LEGO 51515 hub  ──LPF2──▶  motors / sensors
-  (Python +                     (low-level PID,                (the body)
-   Rust link)                    power, encoders)
+  user instruction
+         │
+         ▼
+  +----------------------+
+  |  Claude (cortex)     |
+  |  Opus 4.7 + tool use |
+  +----------+-----------+
+     | drive / turn / arc / stop / look / status
+     ▼
+  +----------------------+         +-----------------------+
+  |  Skills (Python)     |         |  Perception (Python)  |
+  |  diff-drive maths    |         |  Pi camera + Haiku    |
+  +----------+-----------+         +-----------------------+
+             | JSON over Unix socket
+             ▼
+  +----------------------+
+  |  motorctl (Rust)     |
+  |  BLE / LWP3 link     |
+  +----------+-----------+
+             | Bluetooth LE
+             ▼
+  +----------------------+
+  |  LEGO 51515 hub      |
+  |  PID, encoders, 6 LPF2 ports |
+  +----------+-----------+
+             | LPF2
+             ▼
+     LEGO motors & sensors
 ```
 
 ## Why this split
 
-| Layer        | Where it runs | Job                                          |
-|--------------|---------------|----------------------------------------------|
-| Cortex       | Pi (Python)   | vision, planning, REPL, mission scripts      |
-| Brick link   | Pi (Rust)     | BLE/LWP3 link to the hub, IPC server         |
-| Motor control| LEGO hub      | PID, stall detect, encoders, sensor I/O      |
-| Power        | LEGO hub      | battery + 9V motor rail                      |
+| Layer            | Where it runs    | Job                                              |
+|------------------|------------------|--------------------------------------------------|
+| Cortex           | Pi (Python)      | Plan, perceive, decide. The agent loop.          |
+| Skills           | Pi (Python)      | drive / turn / arc, encoder maths, calibration   |
+| Perception       | Pi (Python)      | Pi camera + Claude Haiku 4.5 image captioning    |
+| Brick link       | Pi (Rust)        | BLE/LWP3 to the hub, IPC to Python               |
+| Motor control    | LEGO hub         | PID, stall detect, encoders, sensor I/O          |
+| Power            | LEGO hub battery | Independent of the Pi                             |
 
-The Rust daemon (`motorctl`) is intentionally thin now: it owns the BLE
-characteristic and translates high-level commands into LWP3 frames. The
-reason to keep it in Rust rather than calling `bleak` from Python is to
-keep the link off the Python event loop — GC pauses or a slow vision
-frame shouldn't translate into a stuttering robot.
-
-The two processes talk over a Unix-domain socket with newline-delimited
-JSON, so any tool that can write to a socket can drive the robot:
-
-```sh
-echo '{"cmd":"run_for_degrees","port":0,"degrees":360,"speed":0.5}' \
-  | socat - UNIX-CONNECT:/run/motorctl.sock
-```
+Keeping the BLE link in Rust means the cortex can be restarted, hung,
+or profiled without dropping the connection to the hub. Keeping the
+cortex in Python means iteration is fast and the Anthropic SDK is
+first-class.
 
 ## Hardware
 
 - Raspberry Pi 5 (4 GB or 8 GB) with built-in BLE
-- LEGO SPIKE Prime hub **or** Mindstorms Robot Inventor 51515 (six LPF2
-  ports, internal battery, BLE + USB)
-- LEGO Technic motors and sensors as needed
+- LEGO 51515 hub (SPIKE Prime / Mindstorms Robot Inventor)
+- LEGO Technic motors and sensors
+- Pi Camera Module 3 (or any libcamera-compatible camera) for `look()`
 
-See [`docs/hardware.md`](docs/hardware.md) for pairing notes and the
-LEGO build philosophy.
+See [`docs/hardware.md`](docs/hardware.md).
 
 ## Quickstart (on the Pi)
 
 ```sh
 git clone https://github.com/blujus/DAT4.git
 cd DAT4/backpack
-./scripts/install_pi.sh    # apt + rustup + builds motorctl + systemd unit
+./scripts/install_pi.sh    # apt + rustup + build motorctl + systemd unit + venv
+# put ANTHROPIC_API_KEY in backpack/.env
 # turn the hub on, then:
 sudo systemctl start motorctl
-python -m backpack.orchestrator
+source python/.venv/bin/activate
+set -a; source .env; set +a
+python -m backpack 'drive forward 30 cm and stop'
+```
+
+More interesting prompts:
+
+```sh
+python -m backpack 'move in a circle of radius 40 cm'
+python -m backpack 'look around and tell me what you see'
+python -m backpack 'follow me — keep about 50 cm behind, stop if I stop'
+```
+
+For off-robot development (no LEGO hardware in front of you):
+
+```sh
+export BACKPACK_FAKE_CAMERA=1   # perception returns a stub sighting
+# you'll still need motorctl pointed at a hub to actually drive motors
 ```
 
 ## Layout
@@ -66,14 +105,20 @@ backpack/
   rust-toolchain.toml
   crates/
     motorctl/                 # Rust daemon: BLE/LWP3 link + IPC
-      src/lwp3.rs             #   protocol encoding
+      src/lwp3.rs             #   LWP3 protocol encoding
       src/brick.rs            #   BLE connection layer
       src/ipc.rs              #   Unix-socket server
       src/proto.rs            #   wire types
       src/main.rs
   python/
     pyproject.toml
-    backpack/                 # Python cortex package
+    backpack/
+      ipc.py                  # client for motorctl
+      skills.py               # diff-drive primitives
+      perception.py           # camera + vision
+      agent.py                # Claude tool-use cortex
+      __main__.py             # `python -m backpack '...'`
+      orchestrator.py         # no-LLM hardware smoke test
   scripts/
     install_pi.sh
   docs/
@@ -84,6 +129,9 @@ backpack/
 ## Status
 
 Early scaffold. The Rust daemon connects to the hub over BLE, encodes
-LWP3 Port Output commands (StartSpeed, StartSpeedForDegrees, StartPower
-for brake/coast), and exposes them on the IPC socket. Sensor streaming,
-hub-attached-IO discovery and a mission DSL are next.
+LWP3 Port Output commands, and exposes them on the IPC socket. The
+Python cortex wraps Claude with `drive`, `turn`, `arc`, `stop`, `look`,
+and `get_status` tools. Next: completion events from the brick (so
+`drive(30 cm)` doesn't rely on a sleep estimate), sensor streaming,
+and a small mission DSL for things the agent shouldn't have to
+re-derive every turn.

@@ -1,9 +1,19 @@
-"""High-level orchestration layer for the backpack robot.
+"""High-level cortex for the backpack robot.
 
-The heavy lifting lives in the Rust `motorctl` daemon; this package is a
-thin client plus the mission-level glue (vision, planning, REPL).
+The LEGO 51515 hub owns motor control. The Rust `motorctl` daemon owns
+the BLE/LWP3 link to the hub. This package owns the cognitive layer:
+perception, planning, and turning natural-language goals into the right
+sequence of motor and perception calls.
 """
 
-from .ipc import MotorCtl
+from .agent import Cortex
+from .ipc import MotorCtl, open_motorctl
+from .skills import DriveConfig, Skills
 
-__all__ = ["MotorCtl"]
+__all__ = [
+    "Cortex",
+    "DriveConfig",
+    "MotorCtl",
+    "Skills",
+    "open_motorctl",
+]
