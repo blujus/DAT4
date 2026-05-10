@@ -1,0 +1,19 @@
+[package]
+name = "motorctl"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "motorctl"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serialport = "4.3"
+clap = { version = "4.5", features = ["derive"] }
