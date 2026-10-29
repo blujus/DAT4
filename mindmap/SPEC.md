@@ -43,6 +43,7 @@ Working name: **Mindmap** (rename freely). Status: draft v0.1.
 | Edit | Unlimited undo/redo, cut/copy/paste of subtrees (also as indented text) |
 | Style | Per-node color, shape (rounded rect / pill / none), font size; global themes (light/dark) |
 | Files | Save/open `.mm.json` (see §6), autosave + crash recovery, export PNG/SVG/Markdown outline |
+| Import / Export | **CSV and JSON import and export** (see §6.2–6.3), via File menu, command palette, drag-and-drop onto the window, and `mm-cli` |
 | Search | Fuzzy find across nodes, jump & highlight |
 | Input | Command palette (`Ctrl/Cmd+K`), configurable keymap |
 
@@ -51,6 +52,7 @@ Working name: **Mindmap** (rename freely). Status: draft v0.1.
 - Floating nodes / multiple roots (graph mode).
 - Image & link attachments, URL preview chip.
 - Markdown outline import (indented lists, OPML, FreeMind `.mm`, XMind best-effort).
+- Import/export of cross-links in CSV (separate edges file) and column-mapping presets saved per user.
 - Tags/filters, node focus mode ("hide everything but this branch").
 - Presentation mode (step through branches).
 - Optional sync via CRDT over a user-chosen backend (§10).
@@ -205,7 +207,88 @@ Pipeline per frame:
 - Unknown fields are preserved on round-trip (forward compatibility).
 - Versioned with explicit migrations in `mm-io`.
 - Writes are atomic (temp file + rename). Autosave journal (`.mm.json.journal` of commands) enables crash recovery.
-- Exports: PNG (offscreen wgpu render), SVG (from the draw list), Markdown outline, OPML.
+- Exports: PNG (offscreen wgpu render), SVG (from the draw list), Markdown outline, OPML, plus CSV and JSON interchange (below).
+
+### 6.1 Import/export overview
+| Format | Import | Export | Round-trips losslessly? |
+|---|---|---|---|
+| `.mm.json` (native) | ✅ | ✅ | Yes (it is the native format) |
+| JSON interchange (`mindmap-export`, §6.2) | ✅ | ✅ | Yes for content/structure/style; view state optional |
+| JSON generic (arbitrary JSON, §6.2.3) | ✅ | n/a | One-way |
+| CSV (§6.3) | ✅ | ✅ | Yes for text/structure/note/color/collapsed; layout offsets optional |
+
+All importers and exporters live in `mm-io`, are pure functions over `Read`/`Write` (so they work in WASM and the CLI), and share one error type with line/column or JSON-pointer locations. Import produces a *new* `Document` (never mutates the open one) plus a `Report` of warnings; the UI shows a preview with the report before committing. Import into an existing map is also supported (`Import as branch under selected node`) and is a single undoable transaction.
+
+### 6.2 JSON import/export
+
+**6.2.1 Export — two shapes** (user chooses; default is *nested*):
+
+*Nested* (human-friendly, mirrors the visual tree):
+```json
+{
+  "format": "mindmap-export", "version": 1,
+  "title": "Project",
+  "root": {
+    "id": "n1", "text": "Project", "note": null,
+    "style": { "color": "#e07a5f", "shape": "pill" },
+    "collapsed": false,
+    "children": [
+      { "id": "n2", "text": "Goals", "children": [] }
+    ]
+  },
+  "links": []
+}
+```
+*Flat* (machine-friendly, easy to load into tools/DBs): an array of `{ id, parent_id, order, text, note, color, shape, collapsed, x, y }` records plus `links`. `order` is the zero-based sibling index; `parent_id` is `null` for the root.
+
+Options: pretty/compact, include style, include notes, include layout offsets, include view state, selected-subtree-only.
+
+**6.2.2 Import — auto-detected.** The importer sniffs the input and accepts, in order: (1) native `.mm.json`; (2) `mindmap-export` nested; (3) `mindmap-export` flat; (4) generic JSON (6.2.3). Unknown fields are ignored with a warning (or preserved in a `extra` bag when importing native/interchange files).
+
+**6.2.3 Generic JSON.** Any JSON value maps to a tree so users can visualize API responses and config files:
+- Object → node per key; the key becomes the node text, value is its child (scalars are shown as `key: value` on one node by default).
+- Array → children in order, labelled `[0]`, `[1]`, … (or by a configurable "label field" such as `name`/`title` when elements are objects).
+- A configurable **max depth** and **max nodes** (default 50,000) protect against huge inputs; truncated branches are marked and reported.
+
+Validation: duplicate IDs → regenerated with a warning; dangling `parent_id` → attached to root with a warning; cycles → rejected with the offending IDs; missing/multiple roots → import wizard asks (wrap under a synthetic root, or pick one). Parser is streaming-tolerant for large files (`serde_json` with depth limit; fuzzed).
+
+### 6.3 CSV import/export
+
+**6.3.1 Export schema.** One row per node, depth-first (parent always precedes children), UTF-8 with optional BOM (for Excel), RFC 4180 quoting, header row always written:
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | string | Stable node ID |
+| `parent_id` | string | Empty for the root |
+| `order` | int | Sibling index under the parent |
+| `level` | int | Depth (root = 0); informational |
+| `text` | string | Node text (embedded newlines quoted) |
+| `note` | string | Optional note |
+| `color` | `#rrggbb` | Optional |
+| `shape` | enum | `rounded`, `pill`, `none` (optional) |
+| `collapsed` | bool | `true`/`false` |
+| `x`, `y` | float | Layout offset, only if "include layout" is on |
+
+Options: delimiter (`,` `;` tab), BOM on/off, include optional columns, selected-subtree-only, **spreadsheet-injection guard** (default on): cells starting with `=`, `+`, `-`, `@` are prefixed with `'` on export; the importer strips that prefix.
+
+**6.3.2 Import — three layouts, auto-detected with manual override:**
+1. **Adjacency list** (the export schema above): requires `id` + `parent_id` (+ `text`), other columns optional.
+2. **Path / indented columns**: columns `L1, L2, L3, …` (or any header names) where each row names its ancestry, e.g. `Project, Goals, Q1 target`. Rows sharing the same prefix are merged; empty trailing cells end the path. Typical for data coming from spreadsheets and pivot tables.
+3. **Single column with leading indentation or `level` column**: for quick outline pastes.
+
+**Column-mapping dialog** (shown whenever headers aren't recognized exactly): maps columns → `text` / `note` / `color` / `parent` / `order` / ignore, shows a live preview of the first 100 rows as a tree, and lets the user save the mapping as a preset.
+
+Parsing details: delimiter and encoding sniffing (UTF-8, UTF-8 BOM, UTF-16, with Windows-1252 fallback prompt), tolerant of ragged rows (warning), trimmed whitespace (option), CRLF/LF, quoted multi-line fields. Built on the `csv` crate. Colors accept `#rgb`, `#rrggbb`, and CSS names; invalid values are dropped with a warning.
+
+### 6.4 Entry points
+- **GUI:** `File ▸ Import…` / `Export…` (format picker + options + preview), drag-and-drop a `.csv`/`.json` onto the window, clipboard paste of tab/comma-separated text or JSON (`Ctrl/Cmd+Shift+V` = "Paste as structure"), and "Copy as CSV/JSON" on the selection.
+- **CLI:** `mm-cli import in.csv -o out.mm.json [--layout adjacency|path|indent] [--map text=Name,parent=Parent] [--delimiter ';']`, `mm-cli export map.mm.json --format csv|json [--shape nested|flat] [--subtree <id>]`. Same code path as the GUI, so scripting and CI use the identical logic. Reads stdin / writes stdout when paths are `-`.
+- **Web:** same dialogs; files via File System Access API or `<input type=file>` / download fallback.
+
+### 6.5 Limits & guarantees
+- Import of 100k rows ≤ 1 s native (parse + build + layout deferred); streamed, with a progress bar and cancel in the GUI.
+- Export → import round-trip of the same format yields a structurally identical document (IDs, order, text, notes, supported styles); covered by property tests (§9).
+- Imports never execute or fetch anything; URLs in cells are stored as plain text.
 
 ---
 
@@ -252,7 +335,8 @@ Enforced by `criterion` benches in CI with regression thresholds, plus a built-i
 ## 9. Testing strategy
 - **Unit + property tests** on `mm-core`: random command sequences preserve invariants (acyclic, parent/child symmetry) and `apply(cmd); apply(inverse)` is identity.
 - **Layout tests**: snapshot (`insta`) positions for canonical trees; property: no overlapping siblings; incremental result == full relayout result.
-- **Serialization**: round-trip, golden files per version, unknown-field preservation, `cargo-fuzz` on the loader.
+- **Serialization**: round-trip, golden files per version, unknown-field preservation, `cargo-fuzz` on the loaders (native JSON, interchange JSON, CSV).
+- **Import/export**: property test `export(fmt) → import(fmt)` is structurally identical for random documents (CSV and JSON, nested and flat); golden CSV fixtures covering quoting, embedded newlines, BOM, `;`/tab delimiters, ragged rows, UTF-16; spreadsheet-injection cases; malformed inputs (cycles, duplicate IDs, orphan parents, multiple roots) assert specific warnings/errors.
 - **Rendering**: headless wgpu snapshot images with tolerance; SVG export compared textually.
 - **UI flows**: Action-level tests drive `update()` without a window (keyboard scripts like "Tab, type, Enter, …" → expected doc).
 - **Perf**: `criterion` benches for layout, cull, hit-test, load; CI fails on >10% regression.
@@ -264,7 +348,7 @@ Enforced by `criterion` benches in CI with regression thresholds, plus a built-i
 - **Sync/collab**: because every change is a `Command` on stable `NodeId`s, the document can be swapped for / mirrored into a CRDT (e.g. `loro` or `automerge` tree types) with the command log as the translation layer. Sync transport (file-sync folder, WebSocket, peer-to-peer) stays outside `mm-core`.
 - **Scripting/plugins**: a WASM-component or Lua host exposing the `Command` API.
 - **Themes**: TOML theme files loaded from user config dir.
-- **CLI**: `mm-cli convert in.opml out.mm.json`, `mm-cli export --png`, enabling git hooks/CI doc rendering.
+- **CLI**: `mm-cli import`/`export` for CSV and JSON (§6.4), `mm-cli convert in.opml out.mm.json`, `mm-cli export --png`, enabling git hooks/CI doc rendering.
 
 ---
 
@@ -273,9 +357,9 @@ Enforced by `criterion` benches in CI with regression thresholds, plus a built-i
 | # | Milestone | Deliverable | Exit criteria |
 |---|---|---|---|
 | M0 | Skeleton (1 wk) | Workspace, CI, window with pan/zoom canvas, FPS overlay | 60 fps empty canvas on all 3 OSes + web |
-| M1 | Core + layout (2 wk) | `mm-core` with commands/undo, tidy-tree layout, JSON I/O, CLI validate | Property tests green; 10k-node layout < 10 ms |
+| M1 | Core + layout (2 wk) | `mm-core` with commands/undo, tidy-tree layout, native JSON I/O, **CSV + JSON import/export in `mm-io` and `mm-cli`**, CLI validate | Property tests green; 10k-node layout < 10 ms |
 | M2 | Editable map (2 wk) | Render nodes/edges, selection, inline edit, full default keymap, collapse | Build a 200-node map using only keyboard |
-| M3 | Polish (2 wk) | Drag/drop re-parent, styles, themes, search, palette, minimap, autosave/recovery | Dogfood for a week without data loss |
+| M3 | Polish (2 wk) | Drag/drop re-parent, styles, themes, search, palette, minimap, autosave/recovery, **import/export dialogs with column mapping and preview** | Dogfood for a week without data loss |
 | M4 | Export + web (1–2 wk) | PNG/SVG/Markdown export, WASM build, packaging | Installers produced by CI; web demo live |
 | M5 | v0.1 release | Docs, sample maps, perf report | All §7.1 budgets met |
 
@@ -297,3 +381,4 @@ Enforced by `criterion` benches in CI with regression thresholds, plus a built-i
 2. Is the web build a launch requirement or a fast-follow?
 3. Preferred license (MIT/Apache-2.0 dual is the Rust default)?
 4. Should the on-disk format be a single JSON file or a folder (to hold attachments)? Current plan: single file for v1, zip container (`.mmz`) when attachments land.
+5. CSV cross-links: separate edges file (`source_id,target_id,label`) or extra rows in the same file? Current plan: separate file, v0.2.
