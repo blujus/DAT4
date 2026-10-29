@@ -44,10 +44,11 @@ the same code builds on Linux/Windows (`cargo run --release -p mm-app`).
 | `⌘.` | Collapse / expand · `⌘1…9` show N levels · `⌘0` all |
 | `⌘C ⌘X ⌘V` | Copy/cut/paste branches; pasting indented text creates a tree (`⇧⌘V` = sibling) |
 | `⌘Z` / `⇧⌘Z` | Undo / redo |
+| `⌘L` / `⇧⌘L` | **Auto-layout**: clear manual positions (all / selected branch) |
 | `⇧⌘1` / `⇧⌘2` | Fit all / fit selection |
 | `⌘S ⇧⌘S ⌘O ⌘N` | Save, save as, open, new from template |
 
-Mouse: drag background to pan, scroll/pinch to zoom, drag a node onto another to re-parent,
+Mouse: drag background to pan, scroll/pinch to zoom, drag a node anywhere to place it (its branch comes along) or onto another node to re-parent it (hold `Alt` to force a plain move),
 `Shift`+drag for marquee, double-click to edit.
 
 ## Import / export

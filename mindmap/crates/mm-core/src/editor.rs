@@ -1,6 +1,15 @@
 use crate::command::{Command, CoreError};
 use crate::doc::{Document, Node, NodeId, Shape, Subtree};
 
+/// Identifies pure property setters whose repeats may be merged within a group.
+fn overwrite_key(c: &Command) -> Option<(u8, NodeId)> {
+    match c {
+        Command::SetText { id, .. } => Some((0, *id)),
+        Command::SetOffset { id, .. } => Some((1, *id)),
+        _ => None,
+    }
+}
+
 type Result<T> = std::result::Result<T, CoreError>;
 
 /// A document plus undo/redo history and transaction grouping.
@@ -54,17 +63,14 @@ impl Editor {
     }
 
     pub fn apply(&mut self, cmd: Command) -> Result<()> {
-        let coalesce_id = match &cmd {
-            Command::SetText { id, .. } => Some(*id),
-            _ => None,
-        };
+        let key = overwrite_key(&cmd);
         let inv = self.doc.apply(cmd)?;
         match &mut self.group {
             Some(g) => {
-                // Keystrokes inside one group: keep only the oldest SetText inverse.
-                let same = matches!((g.last(), coalesce_id),
-                    (Some(Command::SetText { id: last, .. }), Some(id)) if *last == id);
-                if !same {
+                // Repeated overwrites of the same property inside one group (keystrokes, drag frames):
+                // the oldest inverse already restores the original, so later ones are dropped.
+                let redundant = key.is_some_and(|k| g.iter().any(|c| overwrite_key(c) == Some(k)));
+                if !redundant {
                     g.push(inv);
                 }
             }
@@ -189,6 +195,19 @@ impl Editor {
             return Ok(());
         }
         self.apply(Command::SetMode(mode))
+    }
+
+    /// Clear manual positions on `ids` (and their descendants). Returns how many were cleared.
+    pub fn clear_offsets(&mut self, ids: &[NodeId]) -> usize {
+        let mut n = 0;
+        for &root in ids {
+            for id in self.doc.subtree_ids(root) {
+                if self.doc.node(id).offset.is_some() && self.apply(Command::SetOffset { id, offset: None }).is_ok() {
+                    n += 1;
+                }
+            }
+        }
+        n
     }
 
     /// Insert a copy of `tree` under `parent` at `index`; returns the new root id.

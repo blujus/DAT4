@@ -318,3 +318,46 @@ fn model_stays_consistent_under_random_key_mashing() {
         assert!(m.ed.doc.contains(m.primary()));
     }
 }
+
+#[test]
+fn manual_positions_and_auto_layout_reset() {
+    use mm_core::Command;
+    let mut m = model();
+    m.dispatch(Tab);
+    m.type_text("a");
+    m.dispatch(Tab);
+    m.type_text("a1");
+    m.dispatch(Escape);
+    let root = m.ed.doc.root();
+    let a = m.ed.doc.children(root)[0];
+    let a1 = m.ed.doc.children(a)[0];
+    let auto = m.layout.rect(a1).unwrap();
+
+    // A drag is many SetOffset frames in one group = one undo step.
+    m.ed.begin_group();
+    for dx in 1..=30 {
+        m.ed.apply(Command::SetOffset { id: a, offset: Some([dx as f32, 2.0 * dx as f32]) }).unwrap();
+    }
+    m.ed.end_group();
+    m.ensure_layout();
+    let moved = m.layout.rect(a1).unwrap();
+    assert_eq!((moved.x - auto.x, moved.y - auto.y), (30.0, 60.0), "descendants travel with the node");
+
+    m.dispatch(ResetLayout { selection_only: false });
+    assert!(m.ed.doc.node(a).offset.is_none());
+    assert_eq!(m.layout.rect(a1).unwrap(), auto);
+
+    m.dispatch(Undo); // undo the reset
+    assert_eq!(m.ed.doc.node(a).offset, Some([30.0, 60.0]));
+    m.dispatch(Undo); // undo the whole drag in one step
+    assert!(m.ed.doc.node(a).offset.is_none());
+    m.dispatch(Redo);
+    assert_eq!(m.ed.doc.node(a).offset, Some([30.0, 60.0]));
+
+    // Selection-only reset leaves other branches alone.
+    m.dispatch(Select { id: root, extend: false });
+    m.ed.apply(Command::SetOffset { id: a1, offset: Some([5.0, 5.0]) }).unwrap();
+    m.dispatch(Select { id: a, extend: false });
+    m.dispatch(ResetLayout { selection_only: true });
+    assert!(m.ed.doc.node(a).offset.is_none() && m.ed.doc.node(a1).offset.is_none());
+}

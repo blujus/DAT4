@@ -59,6 +59,10 @@ pub enum Action {
         extend: bool,
     },
     SelectAll,
+    /// Clear manual node positions and let auto-layout place them again.
+    ResetLayout {
+        selection_only: bool,
+    },
     /// Mouse drag-drop and "move to…" finder: move the selection under `target`.
     MoveSelectionTo(NodeId),
 }
@@ -350,8 +354,22 @@ impl Model {
                 self.sel = self.layout.order.clone();
             }
             Action::MoveSelectionTo(target) => self.move_selection_to(target),
+            Action::ResetLayout { selection_only } => self.reset_layout(selection_only),
         }
         self.ensure_layout();
+    }
+
+    fn reset_layout(&mut self, selection_only: bool) {
+        let roots = if selection_only { self.selected_roots() } else { vec![self.ed.doc.root()] };
+        self.ed.begin_group();
+        let n = self.ed.clear_offsets(&roots);
+        self.ed.end_group();
+        self.focus_request = true;
+        self.status = if n == 0 {
+            "Nothing to reset: everything is already auto-laid-out".into()
+        } else {
+            format!("Auto-layout restored ({n} position(s) reset)")
+        };
     }
 
     fn after_history(&mut self) {

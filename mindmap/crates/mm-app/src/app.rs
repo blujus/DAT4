@@ -54,8 +54,15 @@ enum After {
 
 enum NodeDrag {
     Pan,
-    Marquee { start: Pos2 },
-    Nodes { ids: Vec<NodeId> },
+    Marquee {
+        start: Pos2,
+    },
+    /// Dragging nodes: they follow the cursor (manual position) unless dropped onto another node (re-parent).
+    Nodes {
+        ids: Vec<NodeId>,
+        orig: Vec<(NodeId, [f32; 2])>,
+        acc: Vec2,
+    },
 }
 
 pub struct MindmapApp {
@@ -385,6 +392,11 @@ impl MindmapApp {
             if i.consume_key(Modifiers::COMMAND, Key::A) {
                 actions.push(Action::SelectAll);
             }
+            if i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::L) {
+                actions.push(Action::ResetLayout { selection_only: true });
+            } else if i.consume_key(Modifiers::COMMAND, Key::L) {
+                actions.push(Action::ResetLayout { selection_only: false });
+            }
             if i.consume_key(Modifiers::ALT, Key::M) {
                 actions.push(Action::BeginGrab);
             }
@@ -602,6 +614,15 @@ impl MindmapApp {
                         self.pending_fit = true;
                         ui.close();
                     }
+                }
+                ui.separator();
+                if ui.button("Auto-layout all  Cmd+L").clicked() {
+                    self.model.dispatch(Action::ResetLayout { selection_only: false });
+                    ui.close();
+                }
+                if ui.button("Auto-layout selected branch  Shift+Cmd+L").clicked() {
+                    self.model.dispatch(Action::ResetLayout { selection_only: true });
+                    ui.close();
                 }
                 ui.separator();
                 if ui.button("Fit all  Shift+Cmd+1").clicked() {
@@ -919,29 +940,64 @@ impl MindmapApp {
                     if !self.model.is_selected(id) {
                         self.model.dispatch(Action::Select { id, extend: false });
                     }
-                    NodeDrag::Nodes {
-                        ids: self.model.selected_roots().into_iter().filter(|&i| self.model.ed.doc.parent(i).is_some()).collect(),
+                    let ids: Vec<NodeId> =
+                        self.model.selected_roots().into_iter().filter(|&i| self.model.ed.doc.parent(i).is_some()).collect();
+                    let orig = ids.iter().map(|&i| (i, self.model.ed.doc.node(i).offset.unwrap_or([0.0, 0.0]))).collect();
+                    // One undo step for the whole drag; aborted if it ends as a re-parent.
+                    if self.model.ed.doc.mode != DiagramMode::Fishbone {
+                        self.model.ed.begin_group();
                     }
+                    NodeDrag::Nodes { ids, orig, acc: Vec2::ZERO }
                 }
                 None if shift && !middle => NodeDrag::Marquee { start: origin },
                 _ => NodeDrag::Pan,
             });
         }
         if resp.dragged() {
-            if let Some(NodeDrag::Pan) = self.drag {
-                self.cam.center -= resp.drag_delta() / self.cam.zoom;
-                self.cam_target = None;
+            match &mut self.drag {
+                Some(NodeDrag::Pan) => {
+                    self.cam.center -= resp.drag_delta() / self.cam.zoom;
+                    self.cam_target = None;
+                }
+                Some(NodeDrag::Nodes { orig, acc, .. }) if self.model.ed.doc.mode != DiagramMode::Fishbone => {
+                    *acc += resp.drag_delta() / self.cam.zoom;
+                    for &(id, o) in orig.iter() {
+                        let _ = self.model.ed.apply(mm_core::Command::SetOffset { id, offset: Some([o[0] + acc.x, o[1] + acc.y]) });
+                    }
+                    self.model.ensure_layout();
+                }
+                _ => {}
             }
         }
+        // Dropping the pointer onto another node re-parents; Alt forces a plain move instead.
+        let alt = ctx.input(|i| i.modifiers.alt);
         let mut drop_target: Option<NodeId> = None;
-        if let (Some(NodeDrag::Nodes { ids }), Some(p)) = (&self.drag, pointer_world) {
-            drop_target = hit(self, p).filter(|&t| !ids.iter().any(|&g| self.model.ed.doc.is_ancestor_or_self(g, t)));
+        if let (Some(NodeDrag::Nodes { ids, .. }), Some(p)) = (&self.drag, pointer_world) {
+            let doc = &self.model.ed.doc;
+            drop_target = self
+                .model
+                .layout
+                .order
+                .iter()
+                .rev()
+                .copied()
+                .filter(|&t| !ids.iter().any(|&g| doc.is_ancestor_or_self(g, t)))
+                .find(|&t| self.model.layout.rect(t).is_some_and(|r| r.contains(p.x, p.y)))
+                .filter(|_| !alt);
         }
         if resp.drag_stopped() {
             match self.drag.take() {
                 Some(NodeDrag::Nodes { .. }) => {
                     if let Some(t) = drop_target {
+                        self.model.ed.abort_group(); // undo the live move, then re-parent
                         self.model.dispatch(Action::MoveSelectionTo(t));
+                    } else {
+                        self.model.ed.end_group();
+                        self.model.status = if self.model.ed.doc.mode == DiagramMode::Fishbone {
+                            "Fishbone positions are automatic; drop onto a node to re-parent".into()
+                        } else {
+                            "Moved. View > Auto-layout (Cmd+L) restores automatic positions".into()
+                        };
                     }
                 }
                 Some(NodeDrag::Marquee { start }) => {
@@ -1126,7 +1182,7 @@ impl MindmapApp {
         }
 
         // Ghost for node drag.
-        if let (Some(NodeDrag::Nodes { ids }), Some(p)) = (&self.drag, ui.ctx().pointer_latest_pos()) {
+        if let (Some(NodeDrag::Nodes { ids, .. }), Some(p), DiagramMode::Fishbone) = (&self.drag, ui.ctx().pointer_latest_pos(), doc.mode) {
             if let Some(&first) = ids.first() {
                 let text = doc.node(first).text.clone();
                 let label = if ids.len() > 1 { format!("{text} (+{})", ids.len() - 1) } else { text };
@@ -1203,7 +1259,8 @@ const HELP: &[(&str, &str)] = &[
     ("Cmd+Z / Shift+Cmd+Z", "Undo / redo"),
     ("Shift+Cmd+1 / Shift+Cmd+2", "Fit all / fit selection"),
     ("Cmd+= / Cmd+-", "Zoom in / out (also pinch or Cmd++scroll)"),
-    ("Drag node", "Move to another branch (drop onto the new parent)"),
+    ("Drag node", "Move it (and its branch) anywhere; drop onto a node to re-parent, hold Alt to force a plain move"),
+    ("Cmd+L / Shift+Cmd+L", "Auto-layout: clear manual positions (all / selected branch)"),
     ("Shift+drag", "Marquee select"),
     ("Cmd+S Shift+Cmd+S Cmd+O Cmd+N", "Save, save as, open, new"),
     ("Cmd+I", "Toggle inspector"),
