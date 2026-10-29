@@ -1,0 +1,18 @@
+[package]
+name = "mm-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "mm_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mindmap"
+path = "src/main.rs"
+
+[dependencies]
+mm-core.workspace = true
+mm-layout.workspace = true
+mm-io.workspace = true

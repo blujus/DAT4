@@ -1,0 +1,13 @@
+[package]
+name = "mm-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "mm-cli"
+path = "src/main.rs"
+
+[dependencies]
+mm-core.workspace = true
+mm-io.workspace = true

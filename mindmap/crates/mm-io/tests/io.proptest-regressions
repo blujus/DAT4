@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc b4f71484c289aeb5db0026236bb6c73d6dd3cbe23738c8f4a75ed6483d5aced1 # shrinks to t = Subtree { text: "", note: None, color: None, shape: Rounded, collapsed: false, children: [Subtree { text: "", note: None, color: None, shape: Rounded, collapsed: false, children: [Subtree { text: "'=", note: None, color: None, shape: Rounded, collapsed: false, children: [] }] }] }
