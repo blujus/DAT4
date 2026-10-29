@@ -57,6 +57,11 @@ Working name: **Mindmap** (rename freely). Status: draft v0.1.
 - Presentation mode (step through branches).
 - Optional sync via CRDT over a user-chosen backend (§10).
 
+### 3.3 Thinking modes and diagram types (see §4.7)
+The same node/edge engine renders several "ways of thinking" as layout + template modes, switchable per map or per branch without data loss:
+- **MVP:** Mind map (radial / left-right), Outline (tree list), **Fishbone / Ishikawa**, Org chart (top-down), Logic chart (left-right brackets).
+- **v0.2:** Concept map (labelled free edges), Timeline, 2×2 / matrix, Brace map, Affinity grouping, Tree table (nodes with columns), plus structured templates (SCAMPER, Six Thinking Hats, 5 Whys, SWOT, pros/cons).
+
 ---
 
 ## 4. UX specification
@@ -68,8 +73,8 @@ Working name: **Mindmap** (rename freely). Status: draft v0.1.
 ### 4.2 Default keymap (Xmind/Freeplane-style, remappable)
 | Action | Key |
 |---|---|
-| New child | `Tab` |
-| New sibling (after) | `Enter` |
+| New child | `Tab` (while editing: commit + new child in edit mode) |
+| New sibling (after) | `Enter` (while editing: commit + new sibling in edit mode; see §4.5 for the empty-node rules) |
 | New sibling (before) | `Shift+Enter` |
 | Edit selected node | `F2` / `Space` / just start typing |
 | Commit / cancel edit | `Enter` or `Esc` (commit on blur) |
@@ -96,6 +101,77 @@ Working name: **Mindmap** (rename freely). Status: draft v0.1.
 - Level-of-detail rendering: below ~30% zoom, draw nodes as plain rects (no text); below ~10%, cluster to blobs.
 - Animations (150 ms ease-out) for layout changes, collapse/expand; disabled via reduced-motion setting.
 - Accessibility: high-contrast theme, scalable UI font, full keyboard operation, AccessKit tree for screen readers (see §7.4).
+
+### 4.5 Fast capture & keyboard navigation
+
+Design principle: **the hands never leave the keyboard, and you never wait for the layout** — a thought must be on the page before the next one arrives. This is the "rapid-fire" loop used by Freeplane, MindManager and XMind (Enter = sibling, Tab/Insert = child, Shift+Enter = sibling above), tightened further so that typing never needs a mode switch.
+
+**Typing loop (edit mode is the default after creating a node):**
+| Situation | `Tab` | `Enter` | `Esc` |
+|---|---|---|---|
+| Editing a non-empty node | commit, create **child**, edit it | commit, create **sibling** below, edit it | commit and stay selected |
+| Editing a brand-new **empty** node | indent: become child of the previous sibling | **outdent**: become sibling of its parent ("Enter again to climb a level") | cancel: delete the empty node, select its parent |
+| Selected, not editing | create child, edit | create sibling, edit | clear selection |
+
+So pressing `Enter` repeatedly walks back up the tree one level per press — three `Enter`s on empties gets you three levels out, ready to add a sibling of an ancestor without touching the mouse. (`Ctrl/Cmd+Enter` or `Shift+Enter` inserts a newline inside a node; `Alt+Enter` adds a sibling *above*.)
+
+**Navigation:**
+- Arrow keys move selection **spatially** (nearest node in that direction), with `←`/`→` biased to parent/child in left-right layouts; `Home`/`End` = root / last leaf; `PgUp/PgDn` = previous/next sibling-with-same-level across branches.
+- **Type-to-jump** (`Ctrl/Cmd+P` or `/`): fuzzy-find any node and jump; `Ctrl/Cmd+G` = go to parent's next sibling ("next cousin").
+- **Vim-style option** keymap (`hjkl`, `o`/`O` new sibling, `dd`, `yy`, `p`) for people who want it; keymap files are plain TOML.
+- Camera auto-follows the selection (keeps the focused node and its children on screen) with smooth scroll; never zooms unexpectedly while typing.
+- **Focus mode** (`F`): dim everything but the selected branch; `Ctrl+[` / `Ctrl+]` = zoom focus out/in a level (drill-down like an outliner's "zoom into bullet").
+- Level collapse: `1`–`9` = show only to level N; `0` = expand all.
+
+**Latency rules:** creating a node paints in the same frame (layout is incremental, §5.4; animation is cosmetic and never blocks input); input is never dropped during relayout; holding an arrow key repeats at OS rate with ≤ 1 frame lag on 10k-node maps.
+
+### 4.6 Moving and restructuring across branches
+Restructuring must be as fast as capturing. Every operation is undoable and works on multi-selection (moved nodes keep their relative order):
+
+| Method | How |
+|---|---|
+| **Keyboard nudge** | `Alt+↑/↓` reorder among siblings; `Alt+←` outdent (become sibling after parent); `Alt+→` indent (become last child of previous sibling) |
+| **Grab mode** | Press `M` (or `Ctrl+X` then paste): selected node(s) lift; arrow keys move a ghost drop-target through the tree (highlights candidate parent + insertion slot); `Enter` drops, `Esc` cancels — move a node to any branch with no mouse |
+| **Jump-to-parent move** | `Ctrl/Cmd+Shift+M` opens the fuzzy finder: pick the new parent by name, node moves there (appended last, or `Shift+Enter` = first) |
+| **Cut / paste** | `Ctrl+X` then select target, `Ctrl+V` pastes as child; `Ctrl+Shift+V` as sibling. Pasting multi-line text creates one node per line, indentation = depth |
+| **Drag and drop** | Drag onto a node = make child; drop between nodes (insertion line) = sibling at that slot; drag to empty space = float (v0.2). Auto-scrolls near edges; hold `Alt` to **copy** instead of move; hold a key (`Ctrl`) to move node only and re-attach its children to the old parent (**extract** instead of moving the subtree) |
+| **Merge / split** | `Ctrl+J` merge selected nodes' text into one; `Ctrl+Shift+J` split multi-line node into siblings |
+| **Group / wrap** | `Ctrl+G` wraps selected siblings under a new parent (affinity grouping); `Ctrl+Shift+G` dissolves a node, promoting its children |
+| **Subtree to new map** | Right-click ▸ "Extract branch to new map" (and the reverse: import map as branch) |
+
+### 4.7 Thinking modes (diagram types)
+Different problems need different shapes; the model is the same tree plus optional typed links, so switching mode is a re-layout, not a conversion.
+
+| Mode | Use | Layout rules |
+|---|---|---|
+| **Mind map** (radial / left-right) | Open-ended brainstorming | Tidy-tree or radial layout (§5.4) |
+| **Fishbone (Ishikawa)** | Root-cause analysis | Root = **problem/effect** at the head (right); first-level children = **cause categories** on diagonal "bones" alternating above and below the spine (defaults 6M: Method, Machine, Manpower, Material, Measurement, Mother Nature — or 4P/8P/custom set, selectable template); deeper levels = sub-causes as horizontal ribs. Keyboard flow is identical (`Tab` adds a sub-cause) |
+| **Org chart / top-down tree** | Hierarchies, breakdown structures (WBS) | Top-down tidy tree |
+| **Logic chart / bracket** | Outlines, argument structure | Left-to-right with bracket connectors |
+| **Concept map** (v0.2) | Relationships between ideas | Free positioning, **labelled** cross-links with direction ("causes", "requires"); force-directed "tidy" action |
+| **Timeline** (v0.2) | Sequences, roadmaps | Nodes carry optional dates; laid out along an axis, branches above/below |
+| **Matrix / 2×2** (v0.2) | Prioritization (impact/effort), SWOT | Quadrant frame; nodes dragged into cells store coordinates |
+| **Brace map** (v0.2) | Whole→part decomposition | Left-to-right with brace connectors |
+| **Affinity** (v0.2) | Sorting a brain-dump into themes | Free cards ➜ `Ctrl+G` groups them; auto-suggest groups (local similarity, optional AI) |
+| **Tree table** (v0.2) | Nodes with columns (owner, status, date, priority) | Tree on the left, typed columns on the right; sortable; maps to the CSV columns of §6.3 |
+
+**Structured thinking templates** (insert a pre-built skeleton into a map or as a new map; plain JSON files, user-extensible): SCAMPER (Substitute, Combine, Adapt, Modify, Put to other use, Eliminate, Reverse), Six Thinking Hats, 5 Whys (chain mode: `Tab` repeats "Why?" prompt), SWOT, pros/cons, Eisenhower matrix, 6-3-5 brainwriting prompts, "How might we…", first-principles breakdown. Each template may carry **prompt text** shown as dim placeholder nodes the user overtypes ("What could you substitute?") — turning the tool into a thinking aid, not just a canvas.
+
+### 4.8 Attachments and rich node content
+Attach anything to a node without leaving the keyboard:
+- `Ctrl/Cmd+K` (on a node): **link** — URL, another node (`[[` fuzzy finder), or local file path. Shown as a small chip; `Ctrl+Enter`/click opens.
+- `Ctrl/Cmd+Shift+A`: **attach file** (any file type; images get an inline thumbnail on the node, others show icon + name). Drag-and-drop a file onto a node or the canvas (creates a node). Paste an image from the clipboard (`Ctrl+V` with an image) attaches it to the selected node.
+- **Note**: `F3`/`Ctrl+Enter` opens a side-panel note (Markdown-lite) for long text, keeping node labels short; a small note icon indicates content.
+- **Icons / markers**: `Ctrl+1…9` toggle quick markers (priority, ✔ done, ❓ question, ⚠ risk, ★ star); a searchable icon/emoji picker (`Ctrl+;`).
+- **Tags**: type `#tag` in a node to tag it; tags filter/dim in search and appear in tree-table mode.
+- **Task fields**: optional checkbox (`Ctrl+Space`), due date, progress % (rolls up to parents).
+- **Storage**: files are copied into an `assets/` store inside the document package (§6 `.mmz`), de-duplicated by content hash, with a "link instead of copy" option for large files. Thumbnails are generated off-thread and cached; attachments never block load or render.
+- **Safety**: attachments and links are never auto-opened or fetched; "open" confirms for executables and external URLs on first use per file.
+
+### 4.9 Optional AI assist (off by default, opt-in per action)
+Current commercial tools (Xmind Copilot, Whimsical, Miro) advertise prompt-to-map generation, branch expansion, summarization and auto-organizing; we treat these as *optional accelerators*, not core, to keep the no-network/local-first promise:
+- "Expand this branch" (suggest 3–7 sub-nodes as ghost nodes accepted with `Tab`/rejected with `Esc`), "Summarize branch", "Group these (affinity)", "Turn pasted text / meeting notes into a map", "Suggest causes for this effect" (fishbone).
+- Backend is pluggable (`trait Assist`): local model (e.g. via a local server such as Ollama) or a user-supplied API key. Only the selected branch text is ever sent; a preview shows exactly what leaves the machine. Nothing is sent unless the user triggers it.
 
 ---
 
@@ -141,12 +217,16 @@ pub struct Node {
     pub children: SmallVec<[NodeId; 4]>, // ordered
     pub text: CompactString,
     pub note: Option<Box<str>>,
+    pub attachments: SmallVec<[AttachmentId; 1]>, // files/images/links, see §4.8
+    pub markers: SmallVec<[Marker; 2]>,           // icons, task state, tags
     pub style: StyleOverride,             // sparse; falls back to theme
     pub collapsed: bool,
     pub manual_offset: Option<Vec2>,      // user displacement from auto-layout
 }
 
 pub struct Document {
+    mode: DiagramMode,                    // MindMap | Fishbone | Org | Logic | …
+    attachments: SlotMap<AttachmentId, Attachment>, // hash-addressed blobs + link targets
     nodes: SlotMap<NodeId, Node>,
     root: NodeId,
     links: Vec<CrossLink>,                // v0.2
@@ -159,7 +239,7 @@ pub struct Document {
 
 ### 5.4 Layout (`mm-layout`)
 - Input: tree, per-node measured sizes, layout mode. Output: `HashMap/Vec<NodeId → Rect>`.
-- Algorithms: (a) **Reingold–Tilford / Buchheim** for left-to-right and top-down tidy trees, O(n); (b) **radial** (angular wedge proportional to subtree leaf weight).
+- Algorithms: (0) **Fishbone** (spine + alternating diagonal bones; per-bone rib stacking, O(n)), **bracket/logic** and **org** variants of the tidy tree; v0.2: timeline, matrix, concept-map force relaxation (`mm-layout` exposes a `LayoutMode` trait so new diagram types are plug-ins). (a) **Reingold–Tilford / Buchheim** for left-to-right and top-down tidy trees, O(n); (b) **radial** (angular wedge proportional to subtree leaf weight).
 - **Incremental**: only recompute the ancestors-and-siblings path of dirty nodes when subtree sizes change; full relayout is the fallback and must still be < 10 ms for 5k nodes.
 - Collapsed subtrees contribute only their root's size.
 - Manual offsets are applied after auto-layout and survive re-layout; "Reset layout" clears them.
@@ -192,19 +272,25 @@ Pipeline per frame:
   "version": 1,
   "id": "6f1c…",
   "root": "n1",
+  "mode": "mindmap",
   "nodes": {
     "n1": { "text": "Project", "children": ["n2", "n3"] },
     "n2": { "text": "Goals", "children": [], "collapsed": true,
-            "style": { "color": "#e07a5f" }, "note": "…" },
+            "style": { "color": "#e07a5f" }, "note": "…",
+            "attachments": ["a1"], "markers": ["done", "#risk"] },
     "n3": { "text": "Risks", "children": [], "offset": [24.0, -8.0] }
   },
   "links": [],
+  "attachments": {
+    "a1": { "kind": "file", "name": "plan.pdf", "sha256": "ab12…", "size": 48213 }
+  },
   "view": { "center": [0, 0], "zoom": 1.0 },
   "settings": { "layout": "right" }
 }
 ```
 - IDs are stable short strings (so diffs and future CRDT ops are meaningful).
 - Unknown fields are preserved on round-trip (forward compatibility).
+- With attachments, the document is saved as a **`.mmz` package** (zip: `map.json` + `assets/<sha256>`); maps without attachments stay a single plain `.mm.json`. CSV/JSON interchange (§6.2–6.3) carries attachment *references* (name, hash/path/URL); the exporter can optionally bundle assets.
 - Versioned with explicit migrations in `mm-io`.
 - Writes are atomic (temp file + rename). Autosave journal (`.mm.json.journal` of commands) enables crash recovery.
 - Exports: PNG (offscreen wgpu render), SVG (from the draw list), Markdown outline, OPML, plus CSV and JSON interchange (below).
@@ -338,6 +424,7 @@ Enforced by `criterion` benches in CI with regression thresholds, plus a built-i
 - **Serialization**: round-trip, golden files per version, unknown-field preservation, `cargo-fuzz` on the loaders (native JSON, interchange JSON, CSV).
 - **Import/export**: property test `export(fmt) → import(fmt)` is structurally identical for random documents (CSV and JSON, nested and flat); golden CSV fixtures covering quoting, embedded newlines, BOM, `;`/tab delimiters, ragged rows, UTF-16; spreadsheet-injection cases; malformed inputs (cycles, duplicate IDs, orphan parents, multiple roots) assert specific warnings/errors.
 - **Rendering**: headless wgpu snapshot images with tolerance; SVG export compared textually.
+- **Keyboard flow tests**: scripted sequences for §4.5/4.6 (e.g. `type a, Tab, type b, Enter, Enter, Enter, type c` yields the expected tree; grab-mode moves; move-between-branches round-trips with undo).
 - **UI flows**: Action-level tests drive `update()` without a window (keyboard scripts like "Tab, type, Enter, …" → expected doc).
 - **Perf**: `criterion` benches for layout, cull, hit-test, load; CI fails on >10% regression.
 - CI: `cargo fmt --check`, `clippy -D warnings`, tests on 3 OSes, wasm build, `cargo deny`.
@@ -358,8 +445,9 @@ Enforced by `criterion` benches in CI with regression thresholds, plus a built-i
 |---|---|---|---|
 | M0 | Skeleton (1 wk) | Workspace, CI, window with pan/zoom canvas, FPS overlay | 60 fps empty canvas on all 3 OSes + web |
 | M1 | Core + layout (2 wk) | `mm-core` with commands/undo, tidy-tree layout, native JSON I/O, **CSV + JSON import/export in `mm-io` and `mm-cli`**, CLI validate | Property tests green; 10k-node layout < 10 ms |
-| M2 | Editable map (2 wk) | Render nodes/edges, selection, inline edit, full default keymap, collapse | Build a 200-node map using only keyboard |
+| M2 | Editable map (2 wk) | Render nodes/edges, selection, inline edit, **rapid-fire Tab/Enter typing loop (§4.5)**, spatial navigation, collapse, **keyboard move/grab mode (§4.6)** | Build a 200-node map using only keyboard |
 | M3 | Polish (2 wk) | Drag/drop re-parent, styles, themes, search, palette, minimap, autosave/recovery, **import/export dialogs with column mapping and preview** | Dogfood for a week without data loss |
+| M3b | Thinking modes + attachments (2 wk) | **Fishbone, org, logic layouts and template picker (§4.7)**, links/notes/markers, file & image attachments with `.mmz` packaging (§4.8) | Run a real 5-Whys + fishbone session keyboard-only |
 | M4 | Export + web (1–2 wk) | PNG/SVG/Markdown export, WASM build, packaging | Installers produced by CI; web demo live |
 | M5 | v0.1 release | Docs, sample maps, perf report | All §7.1 budgets met |
 
@@ -372,6 +460,8 @@ Enforced by `criterion` benches in CI with regression thresholds, plus a built-i
 | Text measurement cost at 10k nodes | Slow layout/load | Lazy measurement (only visible + estimate for off-screen), cache by `(text,size,width)`, measure on rayon pool |
 | Tessellation cost for many Béziers | Frame drops when zoomed out | LOD + edge culling + cached meshes; switch backend to `vello` if profiling demands |
 | WASM file access & perf | Reduced web UX | Treat web as first-class in CI from M0; fall back to download/upload |
+| Fishbone and other non-tree layouts fight the incremental tidy-tree engine | Layout bugs, slow edits | `LayoutMode` trait with shared measure/cull/render; each mode snapshot-tested; fishbone ships in MVP as the proving case |
+| Rapid-fire typing loop feels wrong (Enter semantics are opinionated) | Core UX miss | Make §4.5 rules a keymap preset; ship Freeplane-style and Vim-style presets; usability-test M2 |
 | Scope creep (features of XMind/Miro) | Never ships | Hold MVP table in §3.1 as the contract; everything else goes to §3.2 |
 
 ---
@@ -382,3 +472,6 @@ Enforced by `criterion` benches in CI with regression thresholds, plus a built-i
 3. Preferred license (MIT/Apache-2.0 dual is the Rust default)?
 4. Should the on-disk format be a single JSON file or a folder (to hold attachments)? Current plan: single file for v1, zip container (`.mmz`) when attachments land.
 5. CSV cross-links: separate edges file (`source_id,target_id,label`) or extra rows in the same file? Current plan: separate file, v0.2.
+6. Confirm the empty-node `Enter` rule in §4.5 (repeated `Enter` climbs one level at a time) matches the intended "Return three times" flow, or should it e.g. require a different key?
+7. Which diagram types beyond fishbone are launch priorities (concept map? timeline? matrix?)
+8. Is optional AI assist (§4.9) wanted at all, or out of scope?
