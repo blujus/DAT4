@@ -11,7 +11,7 @@ cargo run --release -p mm-app -- map.mm.json
 scripts/bundle-macos.sh --dmg          # dist/Mindmap.app + dist/Mindmap-<ver>-arm64.dmg
 ```
 
-Needs Rust 1.85+ and the Xcode command-line tools. Native target is `aarch64-apple-darwin`;
+Needs Rust 1.95+ (`rustup update stable`) and the Xcode command-line tools. Native target is `aarch64-apple-darwin`;
 the same code builds on Linux/Windows (`cargo run --release -p mm-app`).
 
 ## Workspace
