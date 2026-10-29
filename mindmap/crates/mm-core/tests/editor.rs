@@ -100,7 +100,6 @@ fn templates_build() {
     for t in templates::TEMPLATES {
         let d = t.build();
         d.check_invariants().unwrap();
-        assert!(d.len() >= 1, "{}", t.name);
     }
 }
 

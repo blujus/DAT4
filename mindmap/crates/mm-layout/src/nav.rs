@@ -11,12 +11,7 @@ pub enum Direction {
 
 /// Node whose rectangle is topmost under the point (later nodes win).
 pub fn hit_test(layout: &Layout, x: f32, y: f32) -> Option<NodeId> {
-    layout
-        .order
-        .iter()
-        .rev()
-        .copied()
-        .find(|&id| layout.rect(id).is_some_and(|r| r.contains(x, y)))
+    layout.order.iter().rev().copied().find(|&id| layout.rect(id).is_some_and(|r| r.contains(x, y)))
 }
 
 /// Nearest visible node in `dir` from `from`, weighting off-axis distance double.

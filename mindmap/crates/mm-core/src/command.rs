@@ -17,16 +17,44 @@ pub enum CoreError {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     /// `nodes[0]` is the subtree root; links between the nodes are already set.
-    InsertSubtree { parent: NodeId, index: usize, nodes: Vec<(NodeId, Node)> },
-    RemoveSubtree { id: NodeId },
+    InsertSubtree {
+        parent: NodeId,
+        index: usize,
+        nodes: Vec<(NodeId, Node)>,
+    },
+    RemoveSubtree {
+        id: NodeId,
+    },
     /// `index` is the position among the new parent's children *after* removal.
-    Move { id: NodeId, parent: NodeId, index: usize },
-    SetText { id: NodeId, text: String },
-    SetNote { id: NodeId, note: Option<String> },
-    SetColor { id: NodeId, color: Option<[u8; 3]> },
-    SetShape { id: NodeId, shape: Shape },
-    SetCollapsed { id: NodeId, collapsed: bool },
-    SetOffset { id: NodeId, offset: Option<[f32; 2]> },
+    Move {
+        id: NodeId,
+        parent: NodeId,
+        index: usize,
+    },
+    SetText {
+        id: NodeId,
+        text: String,
+    },
+    SetNote {
+        id: NodeId,
+        note: Option<String>,
+    },
+    SetColor {
+        id: NodeId,
+        color: Option<[u8; 3]>,
+    },
+    SetShape {
+        id: NodeId,
+        shape: Shape,
+    },
+    SetCollapsed {
+        id: NodeId,
+        collapsed: bool,
+    },
+    SetOffset {
+        id: NodeId,
+        offset: Option<[f32; 2]>,
+    },
     SetMode(DiagramMode),
 }
 
@@ -74,8 +102,7 @@ impl Document {
                 let parent = self.node(id).parent.ok_or(CoreError::RootImmutable)?;
                 let index = self.index_in_parent(id).ok_or(CoreError::NoSuchNode)?;
                 let ids = self.subtree_ids(id);
-                let nodes: Vec<(NodeId, Node)> =
-                    ids.iter().map(|&i| (i, self.node(i).clone())).collect();
+                let nodes: Vec<(NodeId, Node)> = ids.iter().map(|&i| (i, self.node(i).clone())).collect();
                 self.node_mut(parent).children.remove(index);
                 for i in ids {
                     self.slots[i.index()] = None;

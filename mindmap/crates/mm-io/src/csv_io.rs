@@ -71,12 +71,14 @@ pub fn export(doc: &Document, o: &ExportOptions) -> Result<Vec<u8>> {
         ];
         if o.include_style {
             row.push(n.color.map(hex).unwrap_or_default());
-            row.push(match n.shape {
-                Shape::Rounded => "rounded",
-                Shape::Pill => "pill",
-                Shape::None => "none",
-            }
-            .into());
+            row.push(
+                match n.shape {
+                    Shape::Rounded => "rounded",
+                    Shape::Pill => "pill",
+                    Shape::None => "none",
+                }
+                .into(),
+            );
             row.push(n.collapsed.to_string());
         }
         if o.include_layout {
@@ -118,8 +120,9 @@ pub struct ImportOptions {
 
 fn sniff_delimiter(text: &str) -> u8 {
     let first = text.lines().next().unwrap_or("");
-    [b',', b';', b'\t']
-        .into_iter()
+    b",;\t"
+        .iter()
+        .copied()
         .max_by_key(|&d| first.bytes().filter(|&b| b == d).count())
         .filter(|&d| first.bytes().any(|b| b == d))
         .unwrap_or(b',')
@@ -182,7 +185,7 @@ pub fn import(bytes: &[u8], o: &ImportOptions, report: &mut Report) -> Result<Do
     Ok(Document::from_subtree(&import_subtree(bytes, o, report)?))
 }
 
-fn get<'a>(row: &'a [String], i: Option<usize>) -> &'a str {
+fn get(row: &[String], i: Option<usize>) -> &str {
     i.and_then(|i| row.get(i)).map(String::as_str).unwrap_or("")
 }
 
@@ -204,11 +207,14 @@ fn adjacency(t: &Table, o: &ImportOptions, report: &mut Report) -> Result<Subtre
     for (i, r) in t.rows.iter().enumerate() {
         let id = get(r, id_c).trim().to_string();
         let key = if id.is_empty() { format!("#row{}", i + 2) } else { id };
-        if index.contains_key(&key) {
-            report.warn(format!("row {}: duplicate id {key:?}; skipped", i + 2));
-            ok[i] = false;
-        } else {
-            index.insert(key, i);
+        match index.entry(key) {
+            std::collections::hash_map::Entry::Occupied(e) => {
+                report.warn(format!("row {}: duplicate id {:?}; skipped", i + 2, e.key()));
+                ok[i] = false;
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(i);
+            }
         }
     }
     let mut kids: HashMap<usize, Vec<usize>> = HashMap::new();

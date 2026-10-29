@@ -37,10 +37,7 @@ fn strip_bullet(s: &str) -> &str {
 }
 
 fn indent_width(line: &str) -> usize {
-    line.chars()
-        .take_while(|c| *c == ' ' || *c == '\t')
-        .map(|c| if c == '\t' { 4 } else { 1 })
-        .sum()
+    line.chars().take_while(|c| *c == ' ' || *c == '\t').map(|c| if c == '\t' { 4 } else { 1 }).sum()
 }
 
 /// Parse indented / bulleted text into a forest. Depth comes from relative

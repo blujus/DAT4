@@ -1,0 +1,43 @@
+name: mindmap
+
+on:
+  push:
+    paths: ["mindmap/**", ".github/workflows/mindmap.yml"]
+  pull_request:
+    paths: ["mindmap/**", ".github/workflows/mindmap.yml"]
+
+defaults:
+  run:
+    working-directory: mindmap
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  core:
+    name: test (linux, headless crates)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: "clippy, rustfmt" }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: mindmap }
+      - run: cargo fmt --all --check
+      - run: cargo test -p mm-core -p mm-layout -p mm-io -p mm-cli
+      - run: cargo clippy -p mm-core -p mm-layout -p mm-io -p mm-cli --all-targets -- -D warnings
+
+  macos-arm64:
+    name: build + test (macOS Apple Silicon)
+    runs-on: macos-14   # M1 runner, aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: mindmap }
+      - run: cargo test --workspace
+      - run: scripts/bundle-macos.sh --dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mindmap-macos-arm64
+          path: mindmap/dist/*.dmg

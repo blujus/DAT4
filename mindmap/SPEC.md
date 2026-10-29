@@ -2,7 +2,7 @@
 
 A fast, keyboard-first, local-first mind-mapping tool written in Rust.
 
-Working name: **Mindmap** (rename freely). Status: draft v0.1.
+Working name: **Mindmap** (rename freely). Status: draft v0.1; first implementation is in this folder — see [README.md](README.md) for what is built and how it deviates (e.g. levels are `Cmd+1..9`, grab mode is `Alt+M`, ids are never reused instead of `slotmap`).
 
 ---
 

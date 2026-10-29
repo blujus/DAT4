@@ -16,3 +16,6 @@ path = "src/main.rs"
 mm-core.workspace = true
 mm-layout.workspace = true
 mm-io.workspace = true
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "wgpu", "wayland", "x11", "accesskit"] }
+rfd = "0.15"
+egui = "0.37"

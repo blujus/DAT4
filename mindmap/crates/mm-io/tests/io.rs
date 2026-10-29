@@ -31,7 +31,8 @@ fn native_roundtrip() {
 
 #[test]
 fn native_rejects_cycles_and_wrong_format() {
-    let bad = r#"{"format":"mindmap","version":1,"root":"a","nodes":{"a":{"text":"a","children":["b"]},"b":{"text":"b","children":["a"]}}}"#;
+    let bad =
+        r#"{"format":"mindmap","version":1,"root":"a","nodes":{"a":{"text":"a","children":["b"]},"b":{"text":"b","children":["a"]}}}"#;
     assert!(native::from_str(bad, &mut Report::default()).is_err());
     assert!(native::from_str(r#"{"format":"other","version":1,"root":"a","nodes":{}}"#, &mut Report::default()).is_err());
 }
@@ -79,7 +80,7 @@ fn generic_json_maps_to_tree_with_limits() {
 #[test]
 fn csv_roundtrip_with_hostile_cells() {
     let d = sample();
-    for delimiter in [b',', b';', b'\t'] {
+    for delimiter in *b",;\t" {
         for bom in [false, true] {
             let out = csv_io::export(&d, &csv_io::ExportOptions { delimiter, bom, ..Default::default() }).unwrap();
             let text = String::from_utf8_lossy(&out);

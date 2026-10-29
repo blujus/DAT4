@@ -35,12 +35,7 @@ pub enum DiagramMode {
 }
 
 impl DiagramMode {
-    pub const ALL: [DiagramMode; 4] = [
-        DiagramMode::MindMap,
-        DiagramMode::Right,
-        DiagramMode::TopDown,
-        DiagramMode::Fishbone,
-    ];
+    pub const ALL: [DiagramMode; 4] = [DiagramMode::MindMap, DiagramMode::Right, DiagramMode::TopDown, DiagramMode::Fishbone];
     pub fn label(self) -> &'static str {
         match self {
             DiagramMode::MindMap => "Mind map",
@@ -145,12 +140,7 @@ pub struct Document {
 
 impl Document {
     pub fn new(root_text: impl Into<String>) -> Self {
-        Document {
-            slots: vec![Some(Node::with_text(root_text))],
-            root: NodeId(0),
-            mode: DiagramMode::default(),
-            revision: 0,
-        }
+        Document { slots: vec![Some(Node::with_text(root_text))], root: NodeId(0), mode: DiagramMode::default(), revision: 0 }
     }
 
     pub fn from_subtree(t: &Subtree) -> Self {

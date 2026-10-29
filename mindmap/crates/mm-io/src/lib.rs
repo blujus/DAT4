@@ -43,10 +43,8 @@ pub fn decode_text(bytes: &[u8], report: &mut Report) -> String {
         return String::from_utf8_lossy(rest).into_owned();
     }
     let utf16 = |rest: &[u8], le: bool| -> String {
-        let units: Vec<u16> = rest
-            .chunks_exact(2)
-            .map(|c| if le { u16::from_le_bytes([c[0], c[1]]) } else { u16::from_be_bytes([c[0], c[1]]) })
-            .collect();
+        let units: Vec<u16> =
+            rest.chunks_exact(2).map(|c| if le { u16::from_le_bytes([c[0], c[1]]) } else { u16::from_be_bytes([c[0], c[1]]) }).collect();
         String::from_utf16_lossy(&units)
     };
     if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {

@@ -136,14 +136,8 @@ pub fn to_string(doc: &Document, view: Option<View>) -> Result<String> {
             )
         })
         .collect();
-    let f = File {
-        format: FORMAT.into(),
-        version: VERSION,
-        root: name(doc.root()),
-        mode: doc.mode,
-        nodes: indexmap_like::Map(nodes),
-        view,
-    };
+    let f =
+        File { format: FORMAT.into(), version: VERSION, root: name(doc.root()), mode: doc.mode, nodes: indexmap_like::Map(nodes), view };
     Ok(serde_json::to_string_pretty(&f)? + "\n")
 }
 

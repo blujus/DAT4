@@ -108,11 +108,7 @@ impl Editor {
 
     pub fn add_child_at(&mut self, parent: NodeId, index: usize, text: &str) -> Result<NodeId> {
         let id = self.doc.next_id();
-        self.apply(Command::InsertSubtree {
-            parent,
-            index,
-            nodes: vec![(id, Node::with_text(text))],
-        })?;
+        self.apply(Command::InsertSubtree { parent, index, nodes: vec![(id, Node::with_text(text))] })?;
         Ok(id)
     }
 

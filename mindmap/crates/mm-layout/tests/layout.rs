@@ -49,7 +49,7 @@ fn no_overlaps_in_any_mode() {
 
 #[test]
 fn collapse_hides_descendants() {
-    let mut doc = big_tree();
+    let doc = big_tree();
     let a = doc.children(doc.root())[0];
     let hidden = doc.children(a)[0];
     let mut ed = Editor::new(doc);
@@ -124,4 +124,24 @@ fn large_tree_layout_is_fast_enough() {
     let el = t.elapsed();
     assert_eq!(l.order.len(), 10_001);
     eprintln!("layout of 10k nodes: {el:?}");
+}
+
+#[test]
+fn fishbone_wide_labels_do_not_overlap() {
+    // Wide category boxes with few or no ribs used to collide with their neighbours.
+    let mut ed = Editor::new(Document::new("Late deliveries"));
+    let root = ed.doc.root();
+    for (i, name) in ["Method", "Machine", "Manpower", "Material", "Measurement", "Mother Nature", "Management", "Money"].iter().enumerate()
+    {
+        let c = ed.add_child(root, name).unwrap();
+        for j in 0..(i % 3) {
+            ed.add_child(c, &format!("cause {j}")).unwrap();
+        }
+    }
+    ed.doc.mode = DiagramMode::Fishbone;
+    for width in [60.0f32, 120.0, 190.0] {
+        let l = compute(&ed.doc, &|id| (width + (id.0 % 3) as f32 * 30.0, 32.0), &Config::default());
+        let ids = ed.doc.visible_ids();
+        assert_eq!(overlaps(&l, &ids), None, "width {width}");
+    }
 }

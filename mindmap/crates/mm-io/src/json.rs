@@ -26,7 +26,14 @@ pub struct ExportOptions {
 
 impl Default for ExportOptions {
     fn default() -> Self {
-        ExportOptions { shape: Shape2::Nested, pretty: true, include_style: true, include_notes: true, include_layout: false, subtree: None }
+        ExportOptions {
+            shape: Shape2::Nested,
+            pretty: true,
+            include_style: true,
+            include_notes: true,
+            include_layout: false,
+            subtree: None,
+        }
     }
 }
 
@@ -35,7 +42,10 @@ fn node_value(doc: &Document, id: NodeId, o: &ExportOptions, nested: bool, order
     let mut m = Map::new();
     m.insert("id".into(), json!(format!("n{}", id.0)));
     if !nested {
-        let parent = if Some(id) == o.subtree || n.parent.is_none() { Value::Null } else { json!(format!("n{}", n.parent.unwrap().0)) };
+        let parent = match n.parent {
+            Some(p) if Some(id) != o.subtree => json!(format!("n{}", p.0)),
+            _ => Value::Null,
+        };
         m.insert("parent_id".into(), parent);
         m.insert("order".into(), json!(order));
     }
@@ -134,12 +144,15 @@ fn flat_to_subtree(rows: Vec<Rec>, report: &mut Report) -> Result<Subtree> {
     let mut ids_ok = Vec::new();
     for (i, r) in rows.iter().enumerate() {
         let key = r.id.clone().unwrap_or_else(|| format!("#row{i}"));
-        if ids.contains_key(&key) {
-            report.warn(format!("duplicate id {key:?}; later row skipped"));
-            ids_ok.push(false);
-        } else {
-            ids.insert(key, i);
-            ids_ok.push(true);
+        match ids.entry(key) {
+            std::collections::hash_map::Entry::Occupied(e) => {
+                report.warn(format!("duplicate id {:?}; later row skipped", e.key()));
+                ids_ok.push(false);
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(i);
+                ids_ok.push(true);
+            }
         }
     }
     let mut kids: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -282,11 +295,7 @@ impl Gen<'_> {
             return self.leaf(s);
         }
         if let Value::Object(m) = val {
-            let label = self
-                .o
-                .label_fields
-                .iter()
-                .find_map(|f| m.get(f).and_then(|v| scalar(v)).map(|s| (f.clone(), s)));
+            let label = self.o.label_fields.iter().find_map(|f| m.get(f).and_then(scalar).map(|s| (f.clone(), s)));
             if let Some((field, text)) = label {
                 let mut t = self.leaf(text)?;
                 let mut rest = m.clone();

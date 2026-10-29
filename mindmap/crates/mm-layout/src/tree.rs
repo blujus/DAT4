@@ -129,12 +129,7 @@ impl<'a> Ctx<'a> {
     }
 }
 
-pub(crate) fn layout(
-    doc: &Document,
-    mode: DiagramMode,
-    measure: &dyn Fn(NodeId) -> (f32, f32),
-    cfg: &Config,
-) -> Layout {
+pub(crate) fn layout(doc: &Document, mode: DiagramMode, measure: &dyn Fn(NodeId) -> (f32, f32), cfg: &Config) -> Layout {
     let mut cx = Ctx::new(doc, measure, cfg);
     let mut side = vec![0i8; cx.rects.len()];
     let root = doc.root();

@@ -32,7 +32,11 @@ pub(crate) fn layout(doc: &Document, measure: &dyn Fn(NodeId) -> (f32, f32), cfg
 
         let bone_h = (ribs_total + 2.0 * pad).max(cfg.fishbone_min_bone);
         let dx = bone_h * cfg.fishbone_slope;
-        let px = cursor[ci];
+        // How far the category box pokes right of the spine attach point, and how far
+        // everything on this bone reaches to the left; keeps neighbouring bones apart.
+        let right_extent = (cw / 2.0 - dx).max(0.0);
+        let left_extent = (dx + rib_gap + max_rib_extent).max(dx + cw / 2.0);
+        let px = cursor[ci] - right_extent;
         let qx = px - dx;
         // Category box sits just beyond the bone end.
         let (qy, box_y) = if s < 0.0 { (-bone_h, -bone_h - ch) } else { (bone_h, bone_h) };
@@ -66,8 +70,7 @@ pub(crate) fn layout(doc: &Document, measure: &dyn Fn(NodeId) -> (f32, f32), cfg
             y += rh_ + cfg.gap_y;
         }
 
-        let footprint = (dx + rib_gap + max_rib_extent).max(dx + cw / 2.0) + cfg.gap_x * 0.6;
-        cursor[ci] = px - footprint;
+        cursor[ci] = px - left_extent - cfg.gap_x * 0.5;
         tail_x = tail_x.min(cursor[ci]);
     }
 
